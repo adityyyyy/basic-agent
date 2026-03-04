@@ -2,6 +2,7 @@ use async_openai::{Client, config::OpenAIConfig};
 use clap::Parser;
 use serde_json::{Value, json};
 use std::{env, fs, process};
+use std::process::Command;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -29,45 +30,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::with_config(config);
 
     let tools = json!([
-            {
-                "type": "function",
-                "function": {
-                    "name": "Read",
-                    "description": "Read and return the contents of a file",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "file_path": {
-                                "type": "string",
-                                "description": "The path to the file to read"
-                            }
-                        },
-                        "required": ["file_path"]
-                    }
-                }
-            },
     {
-    "type": "function",
+      "type": "function",
       "function": {
-        "name": "Write",
-        "description": "Write content to a file",
+        "name": "Bash",
+        "description": "Execute a shell command",
         "parameters": {
           "type": "object",
-          "required": ["file_path", "content"],
+          "required": ["command"],
           "properties": {
-            "file_path": {
+            "command": {
               "type": "string",
-              "description": "The path of the file to write to"
-            },
-            "content": {
-              "type": "string",
-              "description": "The content to write to the file"
+              "description": "The command to execute"
             }
           }
         }
       }
-    }
-        ]);
+    },
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "Read",
+                        "description": "Read and return the contents of a file",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "file_path": {
+                                    "type": "string",
+                                    "description": "The path to the file to read"
+                                }
+                            },
+                            "required": ["file_path"]
+                        }
+                    }
+                },
+        {
+        "type": "function",
+          "function": {
+            "name": "Write",
+            "description": "Write content to a file",
+            "parameters": {
+              "type": "object",
+              "required": ["file_path", "content"],
+              "properties": {
+                "file_path": {
+                  "type": "string",
+                  "description": "The path of the file to write to"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "The content to write to the file"
+                }
+              }
+            }
+          }
+        }
+            ]);
 
     let mut messages = vec![json!({
         "role": "user",
@@ -157,6 +175,20 @@ fn dispatch_tool(name: &str, args: &str) -> Result<String, Box<dyn std::error::E
                 .ok_or("content is missing")?;
             fs::write(file_path, contents)?;
             Ok("File written successfully".to_string())
+        }
+        "Bash" => {
+            let command = parsed
+                .get("command")
+                .and_then(|v| v.as_str())
+                .ok_or("command is missing")?;
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(command)
+                .output()?;
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let result = format!("{}{}" , stdout, stderr);
+            Ok(result)
         }
         _ => Err(format!("Unknown tool: {}", name).into()),
     }
