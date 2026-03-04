@@ -1,7 +1,7 @@
 use async_openai::{Client, config::OpenAIConfig};
 use clap::Parser;
 use serde_json::{Value, json};
-use std::{env, process};
+use std::{env, fs, process};
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -62,11 +62,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     eprintln!("Logs from your program will appear here!");
+    if let Some(tool_calls) = response["choices"][0]["message"]
+        .get("tool_calls")
+        .and_then(|v| v.as_array())
+    {
+        // Tool call exists → dispatch first one
+        if let Some(tool_call) = tool_calls.first() {
+            let function = tool_call
+                .get("function")
+                .and_then(|v| v.as_object())
+                .ok_or("Invalid function format")?;
 
-    // TODO: Uncomment the lines below to pass the first stage
-    if let Some(content) = response["choices"][0]["message"]["content"].as_str() {
-        println!("{}", content);
+            let name = function
+                .get("name")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing function name")?;
+
+            let args_str = function
+                .get("arguments")
+                .and_then(|v| v.as_str())
+                .ok_or("Missing arguments")?;
+
+            dispatch_tool(name, args_str)?;
+        }
+    } else {
+        // No tool_calls → print normal content
+        if let Some(content) = response["choices"][0]["message"]
+            .get("content")
+            .and_then(|v| v.as_str())
+        {
+            println!("{}", content);
+        }
     }
 
+    Ok(())
+}
+
+fn dispatch_tool(name: &str, args: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if name == "Read" {
+        let parsed: Value = serde_json::from_str(args)?;
+        let file_path = parsed
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .ok_or("file path is missing")?;
+        let contents = fs::read_to_string(file_path)?;
+        println!("{}", contents);
+    }
     Ok(())
 }
