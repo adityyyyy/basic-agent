@@ -28,47 +28,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Client::with_config(config);
 
-    let request_body = json!({
-        "model": "anthropic/claude-haiku-4.5",
-        "messages": [
-            {
-                "role": "user",
-                "content": args.prompt
-            }
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "Read",
-                    "description": "Read and return the contents of a file",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "file_path": {
-                                "type": "string",
-                                "description": "The path to the file to read"
-                            }
-                        },
-                        "required": ["file_path"]
-                    }
+    let tools = json!([
+        {
+            "type": "function",
+            "function": {
+                "name": "Read",
+                "description": "Read and return the contents of a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path to the file to read"
+                        }
+                    },
+                    "required": ["file_path"]
                 }
             }
-        ],
-    });
+        }
+    ]);
 
-    #[allow(unused_variables)]
-    let response: Value = client.chat().create_byot(request_body).await?;
-    eprintln!("{}", response);
+    let mut messages = vec![json!({
+        "role": "user",
+        "content": args.prompt
+    })];
 
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    eprintln!("Logs from your program will appear here!");
-    if let Some(tool_calls) = response["choices"][0]["message"]
-        .get("tool_calls")
-        .and_then(|v| v.as_array())
-    {
-        // Tool call exists → dispatch first one
-        if let Some(tool_call) = tool_calls.first() {
+    loop {
+        let response: Value = client
+            .chat()
+            .create_byot(json!({
+                "model": "anthropic/claude-haiku-4.5",
+                "messages": messages,
+                "tools": tools,
+            }))
+            .await?;
+
+        eprintln!("Logs from your program will appear here!");
+
+        let assistant_message = response["choices"][0]["message"].clone();
+        messages.push(assistant_message.clone());
+
+        let tool_calls = assistant_message
+            .get("tool_calls")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        if tool_calls.is_empty() {
+            // No tool calls — print final content and exit
+            if let Some(content) = assistant_message.get("content").and_then(|v| v.as_str()) {
+                println!("{}", content);
+            }
+            break;
+        }
+
+        // Execute each tool call and add results to messages
+        for tool_call in &tool_calls {
+            let id = tool_call
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
             let function = tool_call
                 .get("function")
                 .and_then(|v| v.as_object())
@@ -84,30 +104,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|v| v.as_str())
                 .ok_or("Missing arguments")?;
 
-            dispatch_tool(name, args_str)?;
-        }
-    } else {
-        // No tool_calls → print normal content
-        if let Some(content) = response["choices"][0]["message"]
-            .get("content")
-            .and_then(|v| v.as_str())
-        {
-            println!("{}", content);
+            let result = dispatch_tool(name, args_str)?;
+
+            messages.push(json!({
+                "role": "tool",
+                "tool_call_id": id,
+                "content": result,
+            }));
         }
     }
 
     Ok(())
 }
 
-fn dispatch_tool(name: &str, args: &str) -> Result<(), Box<dyn std::error::Error>> {
-    if name == "Read" {
-        let parsed: Value = serde_json::from_str(args)?;
-        let file_path = parsed
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .ok_or("file path is missing")?;
-        let contents = fs::read_to_string(file_path)?;
-        println!("{}", contents);
+fn dispatch_tool(name: &str, args: &str) -> Result<String, Box<dyn std::error::Error>> {
+    match name {
+        "Read" => {
+            let parsed: Value = serde_json::from_str(args)?;
+            let file_path = parsed
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .ok_or("file path is missing")?;
+            let contents = fs::read_to_string(file_path)?;
+            Ok(contents)
+        }
+        _ => Err(format!("Unknown tool: {}", name).into()),
     }
-    Ok(())
 }
