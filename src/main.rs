@@ -28,37 +28,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = Client::with_config(config);
 
-    #[allow(unused_variables)]
-    let response: Value = client
-        .chat()
-        .create_byot(json!({
-                          "model": "anthropic/claude-haiku-4.5",
-                          "messages": [
-                              {
-                                  "role": "user",
-                                  "content": args.prompt
-                              }
-                          ],
-                          "tools": [
-        {
-                              "type": "function",
+    let request_body = json!({
+        "model": "anthropic/claude-haiku-4.5",
+        "messages": [
+            {
+                "role": "user",
+                "content": args.prompt
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
                 "function": {
-                  "name": "Read",
-                  "description": "Read and return the contents of a file",
-                  "parameters": {
-                    "type": "object",
-                    "properties": {
-                      "file_path": {
-                        "type": "string",
-                        "description": "The path to the file to read"
-                      }
-                    },
-                    "required": ["file_path"]
-                  }
+                    "name": "Read",
+                    "description": "Read and return the contents of a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the file to read"
+                            }
+                        },
+                        "required": ["file_path"]
+                    }
                 }
-                          }],
-                      }))
-        .await?;
+            }
+        ],
+    });
+
+    #[allow(unused_variables)]
+    let response: Value = client.chat().create_byot(request_body).await?;
+    eprintln!("{}", response);
 
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     eprintln!("Logs from your program will appear here!");
