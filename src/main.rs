@@ -29,24 +29,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::with_config(config);
 
     let tools = json!([
-        {
-            "type": "function",
-            "function": {
-                "name": "Read",
-                "description": "Read and return the contents of a file",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "file_path": {
-                            "type": "string",
-                            "description": "The path to the file to read"
-                        }
-                    },
-                    "required": ["file_path"]
+            {
+                "type": "function",
+                "function": {
+                    "name": "Read",
+                    "description": "Read and return the contents of a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the file to read"
+                            }
+                        },
+                        "required": ["file_path"]
+                    }
                 }
+            },
+    {
+    "type": "function",
+      "function": {
+        "name": "Write",
+        "description": "Write content to a file",
+        "parameters": {
+          "type": "object",
+          "required": ["file_path", "content"],
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "The path of the file to write to"
+            },
+            "content": {
+              "type": "string",
+              "description": "The content to write to the file"
             }
+          }
         }
-    ]);
+      }
+    }
+        ]);
 
     let mut messages = vec![json!({
         "role": "user",
@@ -84,10 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Execute each tool call and add results to messages
         for tool_call in &tool_calls {
-            let id = tool_call
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let id = tool_call.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
             let function = tool_call
                 .get("function")
@@ -118,15 +136,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn dispatch_tool(name: &str, args: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let parsed: Value = serde_json::from_str(args)?;
     match name {
         "Read" => {
-            let parsed: Value = serde_json::from_str(args)?;
             let file_path = parsed
                 .get("file_path")
                 .and_then(|v| v.as_str())
                 .ok_or("file path is missing")?;
             let contents = fs::read_to_string(file_path)?;
             Ok(contents)
+        }
+        "Write" => {
+            let file_path = parsed
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .ok_or("file path is missing")?;
+            let contents = parsed
+                .get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("content is missing")?;
+            fs::write(file_path, contents)?;
+            Ok("File written successfully".to_string())
         }
         _ => Err(format!("Unknown tool: {}", name).into()),
     }
